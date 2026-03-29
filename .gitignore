@@ -1,0 +1,24 @@
+# Secrets
+alerts/secrets.py
+config/secrets.py
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Models
+*.pt
+*.pkl
+
+# Logs
+*.log
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
