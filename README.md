@@ -1,3 +1,4 @@
+DEMO HF : https://huggingface.co/spaces/melon771/ForexGuard
 # ForexGuard — Real-Time Trader Anomaly Detection Engine
 
 A production-grade anomaly detection system for forex brokerages. It watches client portal and trading terminal activity in real time, builds a behavioural profile per trader, and flags suspicious patterns before they become compliance problems.
