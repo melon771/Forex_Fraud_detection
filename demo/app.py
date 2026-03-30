@@ -6,6 +6,25 @@ Runs on HuggingFace Spaces (no Postgres or RabbitMQ needed).
 Data is pre-baked from user_features.csv exported from the main system.
 """
 
+import sys
+import types
+
+# 🔥 Proper fix for Python 3.13 (audioop removed)
+audioop = types.ModuleType("audioop")
+
+# Add dummy functions used by pydub
+def _noop(*args, **kwargs):
+    return b"\x00" * (len(args[0]) if args else 1)
+
+audioop.mul = _noop
+audioop.add = _noop
+audioop.bias = _noop
+audioop.lin2lin = _noop
+audioop.ratecv = lambda *args, **kwargs: (b"", None)
+
+sys.modules["audioop"] = audioop
+sys.modules["pyaudioop"] = audioop
+
 import os
 import json
 import pandas as pd
@@ -30,10 +49,16 @@ for col in BOOL_COLS:
         df[col] = df[col].astype(bool)
 
 # ── Gemini setup ──────────────────────────────────────────────────────────────
+
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+
+
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+    for m in genai.list_models():
+        print(m.name)
+    # print( GEMINI_KEY )
+    gemini_model = genai.GenerativeModel("gemini-2.0-flash-lite-001")
 else:
     gemini_model = None
 
@@ -78,12 +103,10 @@ def generate_llm_summary(user_id: str, risk_score: float,
 Analyse this trader risk profile and write a 3-sentence professional summary
 for the compliance team. Be specific about the signals, their implications,
 and recommend a clear action (investigate / monitor / clear).
-
 User ID: {user_id}
 Risk Score: {risk_score:.4f} ({risk_label.upper()} RISK)
 Top anomaly signals:
 {feat_lines}
-
 Write exactly 3 sentences. Be direct and professional. No bullet points."""
 
     try:
@@ -103,7 +126,7 @@ def score_user(user_id: str, gemini_key_input: str):
     key = gemini_key_input.strip() or GEMINI_KEY
     if key and not gemini_model:
         genai.configure(api_key=key)
-        gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+        gemini_model = genai.GenerativeModel("gemini-pro")
 
     row = df[df["user_id"].astype(str) == user_id]
     if row.empty:
@@ -194,7 +217,6 @@ def get_high_risk_users():
 
 with gr.Blocks(
     title="ForexGuard — Anomaly Detection",
-    theme=gr.themes.Base(primary_hue="red", neutral_hue="slate"),
     css=".gradio-container { max-width: 1100px !important; }"
 ) as demo:
 
@@ -244,8 +266,9 @@ with gr.Blocks(
                 outputs=[score_display, llm_output, flags_table, error_msg],
             )
 
+            # FIX: flat list of strings, not nested lists
             gr.Examples(
-                examples=[["92"], ["1"], ["100"], ["250"], ["400"]],
+                examples=["92", "1", "100", "250", "400"],
                 inputs=user_input,
             )
 
@@ -265,7 +288,6 @@ with gr.Blocks(
         with gr.TabItem("About"):
             gr.Markdown("""
             ## How ForexGuard Works
-
             ### Pipeline
             1. Raw events (logins, trades, deposits, withdrawals) are ingested via **RabbitMQ**
             2. A consumer writes events to **PostgreSQL**
@@ -274,12 +296,10 @@ with gr.Blocks(
             5. **LSTM Autoencoder** scores sequence anomalies (advanced model)
             6. An **ensemble** combines both scores (60% IF + 40% LSTM)
             7. High-risk users trigger alerts published back to RabbitMQ
-
             ### Models
             - **Isolation Forest** — unsupervised, no labels needed, fast inference, SHAP-compatible
             - **LSTM Autoencoder** — captures temporal behaviour patterns IF misses
             - **Ensemble** — weighted combination, risk threshold at 0.75 for HIGH alerts
-
             ### Anomaly Signals Detected
             - Bot-like trading automation (sub-second event timing)
             - Rapid IP switching across geographies
@@ -288,10 +308,9 @@ with gr.Blocks(
             - Trade volume spikes (10x personal baseline)
             - KYC changes before large withdrawals
             - Consistent abnormal profit bursts (latency arbitrage)
-
             ### Tech Stack
             RabbitMQ • PostgreSQL • Isolation Forest (sklearn) •
             LSTM Autoencoder (PyTorch) • FastAPI • Gradio • Gemini AI
             """)
 
-demo.launch()
+demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
